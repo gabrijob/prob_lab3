@@ -108,6 +108,7 @@ for it in range(nIter):
 
     ## M step
     pi_k = np.sum(lambda_nk, axis=0)/N
+    Q_z = 0
     for n in range(N):
         for k in range(K):
             Q_z = Q_z + lambda_nk[n,k] * np.log(pi_k[k])
@@ -115,27 +116,49 @@ for it in range(nIter):
     #Q_z_2 = np.sum(Q_z_array)
     
     # update m, omega and beta
+    m = np.average(m_k)
+    Omega = np.average(np.dot(np.subtract(m_k[k],k), np.subtract(m_k[k],k)) + Omega_k[k])
+
+    beta = K*alpha / np.sum(rho_k)
+
     Q_mu = -1/2 * (K*np.log(np.linalg.norm(Omega)))
     for k in range(K):
-        Q_mu = -1/2 * (np.dot(np.subtract(m_k[k],k)),
+        Q_mu = Q_mu -1/2 * (np.dot(np.subtract(m_k[k],k)),
                 np.dot(np.linalg.inv(Omega),np.subtract(m_k[k],m)))
-        Q_mu = -1/2 * (np.trace(np.dot(np.linalg.inv(Omega), Omega_k[k])))
+        Q_mu = Q_mu -1/2 * (np.trace(np.dot(np.linalg.inv(Omega), Omega_k[k])))
 
     Q_v = K*alpha*np.log(beta) - beta* np.sum(rho_k)
 
     Q = Q_z + Q_mu + Q_v
 
     ## E-z step
-
+    for n in range (N):
+        denominator = 0
+        for l in range(K):
+            exp = -1/2 * (DX*eta_k[l] + rho_k[l] * (np.norm(np.add(x[:,n] - m_k[l]))**2 + np.trace(Omega_k[l])))
+            denominator = denominator + pi_k[l] * np.exp(exp)
+        for k in range(K):
+            exp = -1/2 * (DX*eta_k[k] + rho_k[k] * (np.norm(np.add(x[:,n] - m_k[k]))**2 + np.trace(Omega_k[k])))
+            numerator = pi_k[k] * np.exp(exp)
+            lambda_nk[n,k] = numerator / denominator
 
     ## E-mu step
     for k in range(K):
         m_k[k] = Omega_k[k] * (np.linalg.inv(Omega)*m
-                + rho_k[k]*)
+                + rho_k[k]*np.sum(lambda_nk[:,k],x))
 
+        Omega_k_inv = np.linalg.inv(Omega) + np.dot(np.identity(Dx),rho_k[k]*np.sum(lambda_nk, axis=0))
+        Omega_k[k] = np.linalg.inv(Omega_k_inv)
 
     ## E-nu step
-
+    for k in range(K):
+        alpha_k[k] = alpha + Dx/2 * np.sum(lambda_nk[:,k])
+        sum = 0
+        for n in range (N):
+            sum = lambda_nk[n,k] * (np.norm(np.add(x[:,n] - m_k[k]))**2 + np.trace(Omega_k[k]))
+        beta_k = beta + 1/2 * sum
+        eta_k[k] = np.log(beta_k[k]) - digamma.digamma(alpha_k[k])[0]
+        rho_k[k] = alpha_k[k] / beta_k[k]
 
 ### Evaluation of the VEM results
 ## Error measures
