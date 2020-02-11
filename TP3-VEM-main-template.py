@@ -45,10 +45,12 @@ for no in range(N):
     x[:,no] = np.random.multivariate_normal(mean = GroundTruth_Means[target_index,:], cov = GroundTruth_Variances[target_index]*np.identity(Dx))
 ## Plot
 if do_plot:
+    plt.figure(1)
     plt.plot(x[0,:],x[1,:],'ob')
     for k in range(K):
         plt.plot(x[0,GroundTruth_Assignment==k],x[1,GroundTruth_Assignment==k],'o'+colors[k])
-
+    plt.show()
+    
 ### Initialisation
 ## Means
 # Option 1: Select randomly K observations
@@ -80,7 +82,7 @@ if do_plot:
     Plot_Assignments = np.argmax(lambda_nk,axis=1)
     for k in range(K):
         plt.plot(x[0,Plot_Assignments==k],x[1,Plot_Assignments==k],'o'+colors[k])
-
+    plt.show()
 ## Initialise the posterior parameters of the gamma distribution to zero, they are the first to be computed
 alpha_k = alpha*np.ones((K))
 # Rate parameter
@@ -103,7 +105,10 @@ pi_k = np.zeros((K))
 m = np.zeros((Dx))
 Omega = np.zeros((Dx,Dx))
 beta = 0
-## Iterate
+## Performance measures lists
+mvd_list = []
+acc_list = []
+#%%# Iterate
 for it in range(nIter):
 
     ## M step
@@ -116,51 +121,112 @@ for it in range(nIter):
     #Q_z_2 = np.sum(Q_z_array)
     
     # update m, omega and beta
-    m = np.average(m_k)
-    Omega = np.average(np.dot(np.subtract(m_k[k],k), np.subtract(m_k[k],k)) + Omega_k[k])
-
+    m = 0
+    for k in range(K):
+        m = np.add(m, m_k[:,k])
+        dot = np.dot(np.subtract(m_k[:,k],m), np.subtract(m_k[:,k],m).T)
+        Omega = Omega + dot + Omega_k[:,:,k]
+    m = m/K
+    Omega = Omega/K
     beta = K*alpha / np.sum(rho_k)
 
     Q_mu = -1/2 * (K*np.log(np.linalg.norm(Omega)))
     for k in range(K):
-        Q_mu = Q_mu -1/2 * (np.dot(np.subtract(m_k[k],k)),
-                np.dot(np.linalg.inv(Omega),np.subtract(m_k[k],m)))
-        Q_mu = Q_mu -1/2 * (np.trace(np.dot(np.linalg.inv(Omega), Omega_k[k])))
+        Q_mu = Q_mu -1/2 * (np.dot(np.subtract(m_k[:,k],m).T,
+                np.dot(np.linalg.inv(Omega),np.subtract(m_k[:,k],m))))
+        Q_mu = Q_mu -1/2 * (np.trace(np.dot(np.linalg.inv(Omega), Omega_k[:,:,k])))
 
-    Q_v = K*alpha*np.log(beta) - beta* np.sum(rho_k)
+    Q_nu = K*alpha*np.log(beta) - beta* np.sum(rho_k)
 
-    Q = Q_z + Q_mu + Q_v
+    Q = Q_z + Q_mu + Q_nu
 
     ## E-z step
     for n in range (N):
+        bias = 0.01
         denominator = 0
         for l in range(K):
-            exp = -1/2 * (DX*eta_k[l] + rho_k[l] * (np.norm(np.add(x[:,n] - m_k[l]))**2 + np.trace(Omega_k[l])))
+            norm = np.linalg.norm(np.subtract(x[:,n], m_k[:,l]))**2
+            exp = -1/2 * (Dx*eta_k[l] + rho_k[l] * (norm + np.trace(Omega_k[:,:,l])))
             denominator = denominator + pi_k[l] * np.exp(exp)
         for k in range(K):
-            exp = -1/2 * (DX*eta_k[k] + rho_k[k] * (np.norm(np.add(x[:,n] - m_k[k]))**2 + np.trace(Omega_k[k])))
-            numerator = pi_k[k] * np.exp(exp)
-            lambda_nk[n,k] = numerator / denominator
+            norm = np.linalg.norm(np.subtract(x[:,n], m_k[:,k]))**2
+            exp = -1/2 * (Dx*eta_k[k] + rho_k[k] * (norm + np.trace(Omega_k[:,:,k])))
+            numerator = pi_k[k] * np.exp(exp) 
+            if numerator > 0 and denominator > 0:
+                lambda_nk[n,k] = numerator / denominator
+            else:
+                lambda_nk[n,k] = bias
 
     ## E-mu step
     for k in range(K):
-        m_k[k] = Omega_k[k] * (np.linalg.inv(Omega)*m
-                + rho_k[k]*np.sum(lambda_nk[:,k],x))
-
-        Omega_k_inv = np.linalg.inv(Omega) + np.dot(np.identity(Dx),rho_k[k]*np.sum(lambda_nk, axis=0))
-        Omega_k[k] = np.linalg.inv(Omega_k_inv)
+        Omega_k_inv = np.linalg.inv(Omega) + np.dot(np.identity(Dx),rho_k[k]*np.sum(lambda_nk[:,k])) + np.identity(Dx)
+        Omega_k[:,:,k] = np.linalg.inv(Omega_k_inv)
+        
+        m_k[:,k] = np.dot(np.linalg.inv(Omega), m)
+        for n in range(N):
+            m_k[:,k] = np.add(m_k[:,k], rho_k[k]*lambda_nk[n,k]*x[:,n])
+        m_k[:,k] = np.dot(Omega_k[:,:,k], m_k[:,k])
+        
+        #m_k[k] = Omega_k[k] * (np.dot(np.linalg.inv(Omega),m)
+        #       + rho_k[k]*np.sum(np.dot(lambda_nk[:,k],x)))        
 
     ## E-nu step
     for k in range(K):
         alpha_k[k] = alpha + Dx/2 * np.sum(lambda_nk[:,k])
-        sum = 0
+        sum_beta = 0
         for n in range (N):
-            sum = lambda_nk[n,k] * (np.norm(np.add(x[:,n] - m_k[k]))**2 + np.trace(Omega_k[k]))
-        beta_k = beta + 1/2 * sum
+            sum_beta = lambda_nk[n,k] * (np.linalg.norm(np.subtract(x[:,n], m_k[:,k]))**2 + np.trace(Omega_k[:,:,k]))
+        beta_k[k] = beta + 1/2 * sum_beta
         eta_k[k] = np.log(beta_k[k]) - digamma.digamma(alpha_k[k])[0]
         rho_k[k] = alpha_k[k] / beta_k[k]
+        
+    ### Performance plot
+    ## Error measures
+    mean_vector_distance = 0
+    accuracy = 0
+    ## Find the optimal cluster assignment
+    # Compute the cost of assigning cluster k, to ground-truth cluster l
+    cluster_assignment_cost = np.zeros((K,K))
+    for k in range(K):
+        for l in range(K):
+            cluster_assignment_cost[k,l] = np.sum( lambda_nk[GroundTruth_Assignment==l,k])
+    # Obtain the ground-truth-to-estiamted cluster assignment
+    row_ind, col_ind = linear_sum_assignment(-cluster_assignment_cost)
+    ## Compute L2 distance between means
+    mvd = 0
+    for k in range(K):
+        mvd = mvd + np.linalg.norm(m_k[:,row_ind[k]]-GroundTruth_Means[col_ind[k],:])
+    mean_vector_distance = mvd
+    mvd_list.append(mean_vector_distance)
+    ## Compute the clasification error
+    # Optimal found assignment
+    Estimated_Assignments = np.argmax(lambda_nk,axis=1)
+    acc = 0
+    for k in range(K):
+        acc = acc + np.sum(Estimated_Assignments[GroundTruth_Assignment==col_ind[k]]==row_ind[k])
+    accuracy = acc/N*100
+    acc_list.append(accuracy)        
+    
 
-### Evaluation of the VEM results
+#%%## Plot performance measures
+plt.figure(3)
+plt.plot(range(nIter), mvd_list, label='Mean vector distance')
+plt.plot(range(nIter), acc_list, label='Accuracy')
+plt.legend()
+plt.show()
+
+# Plot the hard-assignment
+if do_plot:
+    plt.figure(4)
+    plt.plot(x[0,:],x[1,:],'ob')
+    Plot_Assignments = np.argmax(lambda_nk,axis=1)
+    for k in range(K):
+        plt.plot(x[0,Plot_Assignments==k],x[1,Plot_Assignments==k],'o'+colors[k])
+    plt.show()
+
+
+
+#%%## Evaluation of the VEM results
 ## Error measures
 mean_vector_distance = 0
 accuracy = 0
@@ -184,3 +250,4 @@ acc = 0
 for k in range(K):
     acc = acc + np.sum(Estimated_Assignments[GroundTruth_Assignment==col_ind[k]]==row_ind[k])
 accuracy = acc/N*100
+
