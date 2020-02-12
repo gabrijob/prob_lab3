@@ -6,7 +6,7 @@ import digamma
 import pdb
 from sklearn.cluster import KMeans
 from scipy.optimize import linear_sum_assignment
-
+import json
 
 ### Global variables
 K=3 # Number of components
@@ -50,7 +50,36 @@ if do_plot:
     for k in range(K):
         plt.plot(x[0,GroundTruth_Assignment==k],x[1,GroundTruth_Assignment==k],'o'+colors[k])
     plt.show()
-    
+
+
+data = {}
+data['x'] = []
+data['Assignments'] = []
+data['Means'] = []
+data['Variances'] = []
+for n in range(N):
+    data['x'].append({
+        'N': n,
+        'X1': x[0,n],
+        'X2': x[1,n]
+    })
+    data['Assignments'].append({
+        'N': n,
+        'K': GroundTruth_Assingment[n]
+    })
+for k in range(K):
+    data['Means'].append({
+        'K': k,
+        'Mean': GroundTruth_Means[k]
+    })
+    data['Variances'].append({
+        'K': k,
+        'Variance': GroundTruth_Variances[k]
+    })
+
+with open('distribution.txt', 'w') as outfile:
+    json.dump(data, outfile)
+
 ### Initialisation
 ## Means
 # Option 1: Select randomly K observations
