@@ -12,9 +12,12 @@ import json
 K=3 # Number of components
 N=100 # Number of observations
 Dx=2 # Dimension of the observation space
-nIter = 10 # VEM Iterations
+nIter = 50 # VEM Iterations
 do_plot = 1 # In the general case
 colors = ['r','g','b']
+do_write = 0 # Save the generated distribution for later use
+do_read = 1 # Use distribution from file
+dist_file = 'easy_dist.txt'
 
 ### Model's parameters (same for all sequences)
 ## Components weights
@@ -30,55 +33,85 @@ GroundTruth_alpha = 40
 alpha = GroundTruth_alpha # No estimation of the parameter alpha
 GroundTruth_beta = .1
 
+if do_read:
+    ### Data Reading
+    x = np.zeros((Dx,N))
+    GroundTruth_Assignment = np.zeros((N))
+    GroundTruth_Means = np.zeros((K,Dx))
+    GroundTruth_Variances = np.zeros((K))
+    with open(dist_file) as infile:
+        data = json.load(infile)
+        for sample in data['x']:
+            x[0,sample['N']] = sample['X1']
+            x[1,sample['N']] = sample['X2']
+        for sample in data['Assignments']:
+            GroundTruth_Assignment[sample['N']] = sample['K']
+            GroundTruth_Assignment.astype(int)
+        for k in data['Means']:
+            GroundTruth_Means[k['K'],0] = k['Mean1']
+            GroundTruth_Means[k['K'],1] = k['Mean2']
+            GroundTruth_Means.astype(float)
+        for k in data['Variances']:
+            GroundTruth_Variances[k['K']] = k['Variance']
+            GroundTruth_Variances.astype(float)
+    ## Plot
+    if do_plot:
+        plt.figure(1)
+        plt.plot(x[0,:],x[1,:],'ob')
+        for k in range(K):
+            plt.plot(x[0,GroundTruth_Assignment==k],x[1,GroundTruth_Assignment==k],'o'+colors[k])
+        plt.show()
+else:
+    ### Data Generation
+    ## Assignment Ground Truth
+    GroundTruth_Assignment = np.random.randint(0,K,N)
+    ## The means
+    GroundTruth_Means = np.random.multivariate_normal(mean = GroundTruth_m, cov = GroundTruth_Omega, size = K)
+    ## The variances
+    GroundTruth_Variances = np.random.gamma(shape = GroundTruth_alpha, scale = GroundTruth_beta, size = K)
+    ## Generate the observations
+    x = np.zeros((Dx,N))
+    for no in range(N):
+        target_index = GroundTruth_Assignment[no];
+        x[:,no] = np.random.multivariate_normal(mean = GroundTruth_Means[target_index,:], cov = GroundTruth_Variances[target_index]*np.identity(Dx))
+    ## Plot
+    if do_plot:
+        plt.figure(1)
+        plt.plot(x[0,:],x[1,:],'ob')
+        for k in range(K):
+            plt.plot(x[0,GroundTruth_Assignment==k],x[1,GroundTruth_Assignment==k],'o'+colors[k])
+        plt.show()
 
-### Data Generation
-## Assignment Ground Truth
-GroundTruth_Assignment = np.random.randint(0,K,N)
-## The means
-GroundTruth_Means = np.random.multivariate_normal(mean = GroundTruth_m, cov = GroundTruth_Omega, size = K)
-## The variances
-GroundTruth_Variances = np.random.gamma(shape = GroundTruth_alpha, scale = GroundTruth_beta, size = K)
-## Generate the observations
-x = np.zeros((Dx,N))
-for no in range(N):
-    target_index = GroundTruth_Assignment[no];
-    x[:,no] = np.random.multivariate_normal(mean = GroundTruth_Means[target_index,:], cov = GroundTruth_Variances[target_index]*np.identity(Dx))
-## Plot
-if do_plot:
-    plt.figure(1)
-    plt.plot(x[0,:],x[1,:],'ob')
+## Write distribution to file
+if do_write:
+    data = {}
+    data['x'] = []
+    data['Assignments'] = []
+    data['Means'] = []
+    data['Variances'] = []
+    for n in range(N):
+        data['x'].append({
+            'N': n,
+            'X1': x[0,n],
+            'X2': x[1,n]
+        })
+        data['Assignments'].append({
+            'N': n,
+            'K': int(GroundTruth_Assignment[n])
+        })
     for k in range(K):
-        plt.plot(x[0,GroundTruth_Assignment==k],x[1,GroundTruth_Assignment==k],'o'+colors[k])
-    plt.show()
-
-
-data = {}
-data['x'] = []
-data['Assignments'] = []
-data['Means'] = []
-data['Variances'] = []
-for n in range(N):
-    data['x'].append({
-        'N': n,
-        'X1': x[0,n],
-        'X2': x[1,n]
-    })
-    data['Assignments'].append({
-        'N': n,
-        'K': GroundTruth_Assingment[n]
-    })
-for k in range(K):
-    data['Means'].append({
-        'K': k,
-        'Mean': GroundTruth_Means[k]
-    })
-    data['Variances'].append({
-        'K': k,
-        'Variance': GroundTruth_Variances[k]
-    })
-
-with open('distribution.txt', 'w') as outfile:
-    json.dump(data, outfile)
+        data['Means'].append({
+            'K': k,
+            'Mean1': float(GroundTruth_Means[k,0]),
+            'Mean2': float(GroundTruth_Means[k,1])
+        })
+        data['Variances'].append({
+            'K': k,
+            'Variance': float(GroundTruth_Variances[k])
+        })
+    
+    with open('distribution.txt', 'w') as outfile:
+        json.dump(data, outfile, indent=4)
 
 ### Initialisation
 ## Means
@@ -137,6 +170,10 @@ beta = 0
 ## Performance measures lists
 mvd_list = []
 acc_list = []
+acc_mean = []
+acc_std_dev = []
+mvd_mean = []
+mvd_std_dev = [] 
 #%%# Iterate
 for it in range(nIter):
 
@@ -227,6 +264,8 @@ for it in range(nIter):
         mvd = mvd + np.linalg.norm(m_k[:,row_ind[k]]-GroundTruth_Means[col_ind[k],:])
     mean_vector_distance = mvd
     mvd_list.append(mean_vector_distance)
+    mvd_mean.append(np.array(mvd_list).mean)
+    mvd_std_dev.append(np.array(mvd_list).std)
     ## Compute the clasification error
     # Optimal found assignment
     Estimated_Assignments = np.argmax(lambda_nk,axis=1)
@@ -235,7 +274,8 @@ for it in range(nIter):
         acc = acc + np.sum(Estimated_Assignments[GroundTruth_Assignment==col_ind[k]]==row_ind[k])
     accuracy = acc/N*100
     acc_list.append(accuracy)        
-    
+    acc_mean.append(np.array(acc_list).mean)
+    acc_std_dev.append(np.array(acc_list).std)
 
 #%%## Plot performance measures
 plt.figure(3)
@@ -253,6 +293,13 @@ if do_plot:
         plt.plot(x[0,Plot_Assignments==k],x[1,Plot_Assignments==k],'o'+colors[k])
     plt.show()
 
+# Plot mean and std deviation of performance measures
+plt.figure(4)
+plt.errorbar(range(nIter), mvd_mean, label='Mean vector distance')
+plt.plot(range(nIter), acc_list, label='Accuracy')
+plt.legend()
+plt.show()
+    
 
 
 #%%## Evaluation of the VEM results
