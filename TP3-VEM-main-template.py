@@ -18,6 +18,7 @@ colors = ['r','g','b']
 do_write = 0 # Save the generated distribution for later use
 do_read = 1 # Use distribution from file
 dist_file = 'easy_dist.txt'
+do_random_init = 0
 
 ### Model's parameters (same for all sequences)
 ## Components weights
@@ -122,10 +123,13 @@ m_k = x[:,selected_obs]
 # m_k = GroundTruth_Means.copy()
 # m_k = np.transpose(m_k)
 
-# Initialise Omega_k to identity
-Omega_k = np.zeros((Dx,Dx,K))
-for k in range(K):
-    Omega_k[:,:,k] = np.identity(Dx)
+if do_random_init:
+    Omega_k = np.random.rand(Dx,Dx,K)
+else:
+    # Initialise Omega_k to identity
+    Omega_k = np.zeros((Dx,Dx,K))
+    for k in range(K):
+        Omega_k[:,:,k] = np.identity(Dx)
 ## Assignments
 lambda_nk = np.zeros((N,K))
 # Compute distance from each observation to the new means
@@ -145,8 +149,13 @@ if do_plot:
     for k in range(K):
         plt.plot(x[0,Plot_Assignments==k],x[1,Plot_Assignments==k],'o'+colors[k])
     plt.show()
+
+
 ## Initialise the posterior parameters of the gamma distribution to zero, they are the first to be computed
-alpha_k = alpha*np.ones((K))
+if do_random_init:
+    alpha_k = np.random.randint(1,1000)*np.ones((K))
+else:
+    alpha_k = alpha*np.ones((K))
 # Rate parameter
 beta_k = np.zeros((K))
 eta_k = np.zeros((K))
@@ -264,8 +273,8 @@ for it in range(nIter):
         mvd = mvd + np.linalg.norm(m_k[:,row_ind[k]]-GroundTruth_Means[col_ind[k],:])
     mean_vector_distance = mvd
     mvd_list.append(mean_vector_distance)
-    mvd_mean.append(np.array(mvd_list).mean)
-    mvd_std_dev.append(np.array(mvd_list).std)
+    mvd_mean.append(np.mean(np.array(mvd_list)))
+    mvd_std_dev.append(np.std(np.array(mvd_list)))
     ## Compute the clasification error
     # Optimal found assignment
     Estimated_Assignments = np.argmax(lambda_nk,axis=1)
@@ -273,9 +282,10 @@ for it in range(nIter):
     for k in range(K):
         acc = acc + np.sum(Estimated_Assignments[GroundTruth_Assignment==col_ind[k]]==row_ind[k])
     accuracy = acc/N*100
-    acc_list.append(accuracy)        
-    acc_mean.append(np.array(acc_list).mean)
-    acc_std_dev.append(np.array(acc_list).std)
+    acc_list.append(accuracy)
+    acc_mean.append(np.mean(np.array(acc_list)))
+    acc_std_dev.append(np.std(np.array(acc_list)))
+
 
 #%%## Plot performance measures
 plt.figure(3)
@@ -294,13 +304,16 @@ if do_plot:
     plt.show()
 
 # Plot mean and std deviation of performance measures
-plt.figure(4)
-plt.errorbar(range(nIter), mvd_mean, label='Mean vector distance')
-plt.plot(range(nIter), acc_list, label='Accuracy')
+plt.figure(5)
+plt.errorbar(range(nIter), mvd_mean, yerr = mvd_std_dev, label='MVD mean and standard deviation')
+plt.errorbar(range(nIter), acc_mean, yerr = acc_std_dev, label='Accuracy mean and standard deviation')
 plt.legend()
 plt.show()
     
-
+print('Final Accuracy Mean: {0}'.format(acc_mean[-1]))
+print('Final Accuracy Standard Deviation: {0}'.format(acc_std_dev[-1]))
+print('Final MVD Mean: {0}'.format(mvd_mean[-1]))
+print('Final MVD Standard Deviation: {0}'.format(mvd_std_dev[-1]))
 
 #%%## Evaluation of the VEM results
 ## Error measures
